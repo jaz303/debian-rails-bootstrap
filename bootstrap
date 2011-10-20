@@ -6,6 +6,9 @@
 #
 # when prompted for a MySQL password, please leave it blank.
 # (the script will set a secure password later)
+#
+# TODO: postfix for outgoing email
+# TODO: allow configuration by readline (inc. pubkey)
 
 require 'rake'
 
