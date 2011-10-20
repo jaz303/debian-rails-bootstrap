@@ -143,7 +143,7 @@ if site_name
   
   File.open("/etc/apache2/sites-available/#{site_name}", "w") do |f|
     f.write <<-CONF
-<VirtualHost>
+<VirtualHost *:80>
   ServerName #{site_name}
   ServerAlias www.#{site_name}
   DocumentRoot /web/rails/sites/#{site_name}/current/public
