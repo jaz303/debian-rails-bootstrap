@@ -163,7 +163,7 @@ production:
   username: #{mysql_username}
   password: #{mysql_password}
   encoding: utf8
-  socket: /var/run/mysqld.mysqld.sock
+  socket: /var/run/mysqld/mysqld.sock
 CONF
     end
   end
