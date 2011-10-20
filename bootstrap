@@ -46,6 +46,7 @@ PACKAGES = %w(
   libapr1-dev
   libaprutil1-dev
   git-core
+  imagemagick
 )
 
 if mysql_database
