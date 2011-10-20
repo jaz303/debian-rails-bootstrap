@@ -42,6 +42,7 @@ PACKAGES = %w(
   apache2-prefork-dev
   libapr1-dev
   libaprutil1-dev
+  git-core
 )
 
 if mysql_database
