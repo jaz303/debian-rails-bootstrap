@@ -168,7 +168,7 @@ CONF
     end
   end
 
-  sh "chown rails /web/rails/sites/#{site_name}/shared/config/database.yml"
+  sh "chown -R #{RAILS_USER} /web/rails"
   sh "chmod 0600 /web/rails/sites/#{site_name}/shared/config/database.yml"
 end
 
