@@ -3,6 +3,9 @@
 # run this script as root
 # prerequisites:
 # apt-get -y install ruby rake
+#
+# when prompted for a MySQL password, please leave it blank.
+# (the script will set a secure password later)
 
 require 'rake'
 
