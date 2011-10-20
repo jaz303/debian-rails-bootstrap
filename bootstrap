@@ -72,7 +72,7 @@ end
 #
 # Install packages
 
-sh "apt-get install -y #{PACKAGES.join(' ')}"
+sh "apt-get update && apt-get install -y #{PACKAGES.join(' ')}"
 
 #
 # Install REE & Passenger
