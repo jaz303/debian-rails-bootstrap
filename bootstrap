@@ -112,6 +112,7 @@ sh "/etc/init.d/ssh restart"
 #
 # Create user account and directory structure
 
+sh "mkdir /web"
 sh "useradd -d /web/rails -s /bin/bash -m -U -G ssh #{RAILS_USER}"
 sh "mkdir -p ~rails/.ssh"
 sh "touch ~rails/.ssh/authorized_keys"
