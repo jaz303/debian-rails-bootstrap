@@ -133,12 +133,9 @@ end
 # Create default vhost
 
 if site_name
-
-  base = "/web/rails/sites/#{site_name}/"
-  sh "mkdir -p #{base}current"
-  sh "mkdir -p #{base}shared"
-  sh "mkdir -p #{base}shared/config"
-  sh "mkdir -p #{base}releases"
+  %w(shared/config releases).each do |dir|
+    sh "mkdir -p /web/rails/sites/#{dir}"
+  end
   
   File.open("/etc/apache2/sites-available/#{site_name}", "w") do |f|
     f.write <<-CONF
