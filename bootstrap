@@ -1,0 +1,176 @@
+#!/usr/bin/env ruby
+
+# run this script as root
+# prerequisites:
+# apt-get -y install ruby rake
+
+require 'rake'
+
+#
+# Get variables
+
+if ARGV.length < 2
+  puts "Usage: bootstrap username site_name [mysql_database mysql_username]"
+  exit
+end
+
+RAILS_USER = ARGV.shift
+site_name = ARGV.shift
+mysql_database = ARGV.shift
+mysql_username = ARGV.shift
+
+$chars = [('a'..'z'),('A'..'Z'),('0'..'9')].map {|i| i.to_a }.flatten
+mysql_password = (0..16).map { $chars[rand($chars.length)] }.join
+mysql_root_password = (0..16).map { $chars[rand($chars.length)] }.join
+
+#
+# Config
+
+REE_URL = "http://rubyenterpriseedition.googlecode.com/files/ruby-enterprise-1.8.7-2011.03.tar.gz"
+
+PACKAGES = %w(
+  apache2-mpm-prefork
+  build-essential
+  wget
+  curl
+  screen
+  vim
+  zlib1g-dev
+  libssl-dev
+  libreadline5-dev
+  libcurl4-openssl-dev
+  apache2-prefork-dev
+  libapr1-dev
+  libaprutil1-dev
+)
+
+if mysql_database
+  PACKAGES.push('mysql-server')
+end
+
+#
+# Helpers
+
+def write_file(file, contents)
+  File.open(file, "w") { |f| f.write(contents) }
+end
+
+def remove_line(file, pattern)
+  infile = File.read(file)
+  File.open(file, "w") do |f|
+    infile.each_line do |l|
+      f.write(l) unless l =~ pattern
+    end
+  end
+end
+
+def append_line(file, line)
+  File.open(file, "a") { |f| f.write("\n#{line}") }
+end
+
+#
+# Install packages
+
+sh "apt-get install -y #{PACKAGES.join(' ')}"
+
+#
+# Install REE & Passenger
+
+sh "cd ~ && curl -o ree.tgz #{REE_URL} && tar xf ree.tgz && cd ~/ruby-enterprise-* && ./installer -a /opt/ree"
+
+puts "compiling passenger..."
+out = `/opt/ree/bin/passenger-install-apache2-module -a`
+
+out =~ /(LoadModule\s+[ \w\.\-\/]+)/
+passenger_load_module = $1.strip
+
+out =~ /(PassengerRoot\s*[ \w\.\-\/]+)/
+passenger_root = $1.strip
+
+out =~ /(PassengerRuby\s*[ \w\.\-\/]+)/
+passenger_ruby = $1.strip
+
+write_file("/etc/apache2/mods-available/passenger.load", "#{passenger_load_module}\n")
+write_file("/etc/apache2/mods-available/passenger.conf", "#{passenger_root}\n#{passenger_ruby}\n")
+
+sh "a2enmod passenger"
+sh "/etc/init.d/apache2 restart"
+
+#
+# Lock down ssh
+
+remove_line("/etc/ssh/sshd_config", /PermitRootLogin/)
+remove_line("/etc/ssh/sshd_config", /AllowGroups/)
+remove_line("/etc/ssh/sshd_config", /PasswordAuthentication/)
+append_line("/etc/ssh/sshd_config", "PermitRootLogin no")
+append_line("/etc/ssh/sshd_config", "AllowGroups ssh")
+append_line("/etc/ssh/sshd_config", "PasswordAuthentication no")
+
+sh "/etc/init.d/ssh restart"
+
+#
+# Create user account and directory structure
+
+sh "useradd -d /web/rails -s /bin/bash -m -U -G ssh #{RAILS_USER}"
+sh "mkdir -p ~rails/.ssh"
+sh "touch ~rails/.ssh/authorized_keys"
+sh "chown -R rails:rails ~rails/.ssh"
+sh "chmod 0700 ~rails/.ssh"
+sh "chmod 0600 ~rails/.ssh/authorized_keys"
+
+#
+# MySQL config
+
+if mysql_database
+  sh "mysqladmin -uroot password '#{mysql_root_password}'" rescue nil
+  sh "mysqladmin --defaults-extra-file=/etc/mysql/debian.cnf create #{mysql_database}" rescue nil
+  sh "mysql --defaults-extra-file=/etc/mysql/debian.cnf -e \"GRANT ALL ON #{mysql_database}.* TO '#{mysql_username}'@'localhost' IDENTIFIED BY '#{mysql_password}'\""
+end
+
+#
+# Create default vhost
+
+if site_name
+
+  base = "/web/rails/sites/#{site_name}/"
+  sh "mkdir -p #{base}current"
+  sh "mkdir -p #{base}shared"
+  sh "mkdir -p #{base}shared/config"
+  sh "mkdir -p #{base}releases"
+  
+  File.open("/etc/apache2/sites-available/#{site_name}", "w") do |f|
+    f.write <<-CONF
+<VirtualHost>
+  ServerName #{site_name}
+  ServerAlias www.#{site_name}
+  DocumentRoot /web/rails/sites/#{site_name}/current/public
+  <Directory /web/rails/sites/#{site_name}/current/public>
+    AllowOverride all
+    Options -MultiViews
+  </Directory>
+</VirtualHost>
+CONF
+  end
+
+  sh "a2ensite #{site_name}"
+
+  if mysql_database
+    File.open("/web/rails/sites/#{site_name}/shared/config/database.yml", "w") do |f|
+     f.write <<-CONF
+production:
+  adapter: mysql2
+  host: localhost
+  database: #{mysql_database}
+  username: #{mysql_username}
+  password: #{mysql_password}
+  encoding: utf8
+  socket: /var/run/mysqld.mysqld.sock
+CONF
+    end
+  end
+
+  sh "chown rails /web/rails/sites/#{site_name}/shared/config/database.yml"
+  sh "chmod 0600 /web/rails/sites/#{site_name}/shared/config/database.yml"
+end
+
+puts "All done! Remember to add a key for user `#{RAILS_USER}`."
