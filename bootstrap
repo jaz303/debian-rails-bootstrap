@@ -12,27 +12,31 @@
 
 require 'rake'
 
+# Configuration
+
+INSTALL_RUBY_VERSION        = '1.9' # or 'ree'
+RUBY_1_9_URL                = 'http://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.2-p290.tar.gz'
+REE_URL                     = 'http://rubyenterpriseedition.googlecode.com/files/ruby-enterprise-1.8.7-2011.03.tar.gz'
+RAILS_USER                  = 'rails'
+SITE_NAME                   = 'foo.bar.com'
+USE_MYSQL                   = true
+MYSQL_DATABASE              = ''
+MYSQL_USERNAME              = ''
+
 #
-# Get variables
+#
+#
 
-if ARGV.length < 2
-  puts "Usage: bootstrap username site_name [mysql_database mysql_username]"
-  exit
-end
-
-RAILS_USER = ARGV.shift
-site_name = ARGV.shift
-mysql_database = ARGV.shift
-mysql_username = ARGV.shift
+site_name             = SITE_NAME
+mysql_database        = MYSQL_DATABASE
+mysql_username        = MYSQL_USERNAME
 
 $chars = [('a'..'z'),('A'..'Z'),('0'..'9')].map {|i| i.to_a }.flatten
-mysql_password = (0..16).map { $chars[rand($chars.length)] }.join
-mysql_root_password = (0..16).map { $chars[rand($chars.length)] }.join
+mysql_password        = (0..16).map { $chars[rand($chars.length)] }.join
+mysql_root_password   = (0..16).map { $chars[rand($chars.length)] }.join
 
 #
 # Config
-
-REE_URL = "http://rubyenterpriseedition.googlecode.com/files/ruby-enterprise-1.8.7-2011.03.tar.gz"
 
 PACKAGES = %w(
   apache2-mpm-prefork
@@ -52,7 +56,7 @@ PACKAGES = %w(
   imagemagick
 )
 
-if mysql_database
+if USE_MYSQL
   PACKAGES.push('mysql-server')
 end
 
@@ -76,6 +80,31 @@ def append_line(file, line)
   File.open(file, "a") { |f| f.write("\n#{line}") }
 end
 
+def ruby_cmd(cmd)
+  case INSTALL_RUBY_VERSION
+  when 'ree'
+    "/opt/ree/bin/#{cmd}"
+  when '1.9'
+    "/usr/local/bin/#{cmd}"
+  end
+end
+
+def ruby_path
+  ruby_cmd "ruby"
+end
+
+def ruby_exec(cmd)
+  sh ruby_cmd(cmd)
+end
+
+#
+# Sanity check
+
+unless %w(ree 1.9).include?(INSTALL_RUBY_VERSION)
+  $stderr.puts "Invalid Ruby version!"
+  exit
+end
+
 #
 # Install packages
 
@@ -84,10 +113,18 @@ sh "apt-get update && apt-get install -y #{PACKAGES.join(' ')}"
 #
 # Install REE & Passenger
 
-sh "cd ~ && curl -o ree.tgz #{REE_URL} && tar xf ree.tgz && cd ~/ruby-enterprise-* && ./installer -a /opt/ree"
+case INSTALL_RUBY_VERSION
+when 'ree'
+  sh "cd ~ && curl -o ree.tgz #{REE_URL} && tar xf ree.tgz && cd ~/ruby-enterprise-* && ./installer -a /opt/ree"
+when '1.9'
+  sh "cd ~ && curl -o ruby.tgz #{RUBY_1_9_URL} && tar xf ruby.tgz && cd ~/ruby* && ./configure --prefix=/usr/local && make && make install"
+  ruby_exec "gem install passenger"
+end
+
+ruby_exec "gem install bundler"
 
 puts "compiling passenger..."
-out = `/opt/ree/bin/passenger-install-apache2-module -a`
+out = `#{ruby_cmd('passenger-install-apache2-module -a')}`
 
 out =~ /(LoadModule\s+[ \w\.\-\/]+)/
 passenger_load_module = $1.strip
@@ -120,20 +157,21 @@ sh "/etc/init.d/ssh restart"
 # Create user account and directory structure
 
 sh "mkdir /web"
-sh "useradd -d /web/rails -s /bin/bash -m -U -G ssh #{RAILS_USER}"
-sh "mkdir -p ~rails/.ssh"
-sh "touch ~rails/.ssh/authorized_keys"
-sh "chown -R rails:rails ~rails/.ssh"
-sh "chmod 0700 ~rails/.ssh"
-sh "chmod 0600 ~rails/.ssh/authorized_keys"
+sh "useradd -d /web/#{RAILS_USER} -s /bin/bash -m -U -G ssh #{RAILS_USER}"
+sh "mkdir -p ~#{RAILS_USER}/.ssh"
+sh "touch ~#{RAILS_USER}/.ssh/authorized_keys"
+sh "chown -R #{RAILS_USER}:#{RAILS_USER} ~#{RAILS_USER}/.ssh"
+sh "chmod 0700 ~#{RAILS_USER}/.ssh"
+sh "chmod 0600 ~#{RAILS_USER}/.ssh/authorized_keys"
 
 #
 # MySQL config
 
-if mysql_database
+if USE_MYSQL
   sh "mysqladmin -uroot password '#{mysql_root_password}'" rescue nil
   sh "mysqladmin --defaults-extra-file=/etc/mysql/debian.cnf create #{mysql_database}" rescue nil
   sh "mysql --defaults-extra-file=/etc/mysql/debian.cnf -e \"GRANT ALL ON #{mysql_database}.* TO '#{mysql_username}'@'localhost' IDENTIFIED BY '#{mysql_password}'\""
+  sh "echo '#{mysql_root_password}' > ~/mysql_password"
 end
 
 #
@@ -141,7 +179,7 @@ end
 
 if site_name
   %w(shared/config releases).each do |dir|
-    sh "mkdir -p /web/rails/sites/#{site_name}/#{dir}"
+    sh "mkdir -p /web/#{RAILS_USER}/sites/#{site_name}/#{dir}"
   end
   
   File.open("/etc/apache2/sites-available/#{site_name}", "w") do |f|
@@ -149,8 +187,8 @@ if site_name
 <VirtualHost *:80>
   ServerName #{site_name}
   ServerAlias www.#{site_name}
-  DocumentRoot /web/rails/sites/#{site_name}/current/public
-  <Directory /web/rails/sites/#{site_name}/current/public>
+  DocumentRoot /web/#{RAILS_USER}/sites/#{site_name}/current/public
+  <Directory /web/#{RAILS_USER}/sites/#{site_name}/current/public>
     AllowOverride all
     Options -MultiViews
   </Directory>
@@ -161,7 +199,7 @@ CONF
   sh "a2ensite #{site_name}"
 
   if mysql_database
-    File.open("/web/rails/sites/#{site_name}/shared/config/database.yml", "w") do |f|
+    File.open("/web/#{RAILS_USER}/sites/#{site_name}/shared/config/database.yml", "w") do |f|
      f.write <<-CONF
 production:
   adapter: mysql2
@@ -175,8 +213,9 @@ CONF
     end
   end
 
-  sh "chown -R #{RAILS_USER} /web/rails"
-  sh "chmod 0600 /web/rails/sites/#{site_name}/shared/config/database.yml"
+  sh "chown -R #{RAILS_USER} /web/#{RAILS_USER}"
+  sh "chmod 0600 /web/#{RAILS_USER}/sites/#{site_name}/shared/config/database.yml"
 end
 
 puts "All done! Remember to add a key for user `#{RAILS_USER}`."
+puts "It is now safe to remove the distribution's ruby version, if you wish."
